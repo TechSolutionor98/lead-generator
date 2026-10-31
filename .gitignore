@@ -1,0 +1,21 @@
+node_modules/
+dist/
+build/
+*.log
+npm-debug.log*
+
+# env
+.env
+.env.local
+
+# sqlite data store
+server/data/*.db
+server/data/*.db-wal
+server/data/*.db-shm
+
+# uploads / tmp
+server/uploads/
+.DS_Store
+
+# vite / client
+client/dist/

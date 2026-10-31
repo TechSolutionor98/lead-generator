@@ -1,0 +1,25 @@
+{
+  "name": "grableads",
+  "version": "1.0.0",
+  "private": true,
+  "description": "GrabLeads — B2B Russian business lead generation for grabatoz.ae (free scrapers: 2GIS web endpoint, Yandex Playwright, OpenStreetMap).",
+  "workspaces": [
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,client -c green,cyan \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:server": "npm --workspace server run dev",
+    "dev:client": "npm --workspace client run dev",
+    "build": "npm --workspace server run build && npm --workspace client run build",
+    "start": "npm --workspace server run start",
+    "test": "npm --workspace server run test",
+    "postinstall": "node -e \"console.log('\\n[GrabLeads] Installed. Run: npx playwright install chromium  (needed for the Yandex scraper), then: npm run dev\\n')\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
