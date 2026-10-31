@@ -214,3 +214,4 @@ city / category.
   own risk. Avito is **not scraped** (manual import only).
 - **No captcha-solving, no detection-evasion.** Scrapers are rate-limited and
   pause/surface on captcha rather than defeating it.
+# lead-generator
