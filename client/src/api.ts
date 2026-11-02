@@ -2,6 +2,28 @@ import type { Country, JobEvent, LeadsResponse, NamedCode, SourceInfo, Target } 
 
 /** Typed fetch helpers + an SSE subscription helper for job events. */
 
+/**
+ * Base URL of the backend API.
+ *
+ * - Leave `VITE_API_URL` empty (or unset) to use same-origin relative paths,
+ *   which the Vite dev proxy forwards to the server (local dev convenience).
+ * - Set it to the backend's full origin (e.g. `http://localhost:5050` in dev,
+ *   or `https://api.yourdomain.com` in production) to call the backend
+ *   directly — this is how the frontend and backend run as separate services.
+ *
+ * Trailing slashes are trimmed so `${API_BASE}/api/...` is always well-formed.
+ */
+const API_BASE = (
+  import.meta.env.NEXT_PUBLIC_API_URL ??
+  import.meta.env.VITE_API_URL ??
+  ''
+).replace(/\/+$/, '');
+
+/** Prefix an `/api/...` path with the configured backend base URL. */
+function api(path: string): string {
+  return `${API_BASE}${path}`;
+}
+
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -11,19 +33,19 @@ async function json<T>(res: Response): Promise<T> {
 }
 
 export async function getSources(): Promise<SourceInfo[]> {
-  const data = await json<{ sources: SourceInfo[] }>(await fetch('/api/sources'));
+  const data = await json<{ sources: SourceInfo[] }>(await fetch(api('/api/sources')));
   return data.sources;
 }
 
 export async function getCountries(): Promise<Country[]> {
-  const data = await json<{ countries: Country[] }>(await fetch('/api/countries'));
+  const data = await json<{ countries: Country[] }>(await fetch(api('/api/countries')));
   return data.countries;
 }
 
 /** Regions/states for a country (auto-fetched when a country is picked). */
 export async function getRegions(countryCode: string): Promise<NamedCode[]> {
   const data = await json<{ regions: NamedCode[] }>(
-    await fetch(`/api/regions?country=${encodeURIComponent(countryCode)}`),
+    await fetch(api(`/api/regions?country=${encodeURIComponent(countryCode)}`)),
   );
   return data.regions;
 }
@@ -32,7 +54,7 @@ export async function getRegions(countryCode: string): Promise<NamedCode[]> {
 export async function getCities(countryCode: string, regionCode: string): Promise<string[]> {
   const data = await json<{ cities: string[] }>(
     await fetch(
-      `/api/cities?country=${encodeURIComponent(countryCode)}&region=${encodeURIComponent(regionCode)}`,
+      api(`/api/cities?country=${encodeURIComponent(countryCode)}&region=${encodeURIComponent(regionCode)}`),
     ),
   );
   return data.cities;
@@ -49,7 +71,7 @@ export interface CreateJobBody {
 
 export async function createJob(body: CreateJobBody): Promise<{ id: string }> {
   return json(
-    await fetch('/api/jobs', {
+    await fetch(api('/api/jobs'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -58,7 +80,7 @@ export async function createJob(body: CreateJobBody): Promise<{ id: string }> {
 }
 
 export async function cancelJob(id: string): Promise<void> {
-  await fetch(`/api/jobs/${id}/cancel`, { method: 'POST' });
+  await fetch(api(`/api/jobs/${id}/cancel`), { method: 'POST' });
 }
 
 export interface LeadsQuery {
@@ -86,7 +108,7 @@ export function exportUrl(
   const params = new URLSearchParams({ format });
   if (opts.ids && opts.ids.length) params.set('ids', opts.ids.join(','));
   if (opts.excludeIndividuals) params.set('excludeIndividuals', 'true');
-  return `/api/jobs/${jobId}/export?${params.toString()}`;
+  return api(`/api/jobs/${jobId}/export?${params.toString()}`);
 }
 
 /**
@@ -125,7 +147,7 @@ export async function downloadExport(
 
 /** Subscribe to a job's SSE stream. Returns an unsubscribe function. */
 export function subscribeJob(jobId: string, onEvent: (e: JobEvent) => void): () => void {
-  const es = new EventSource(`/api/jobs/${jobId}/events`);
+  const es = new EventSource(api(`/api/jobs/${jobId}/events`));
   es.onmessage = (ev) => {
     try {
       onEvent(JSON.parse(ev.data) as JobEvent);
@@ -151,7 +173,7 @@ export interface AvitoPreview {
 export async function previewAvito(file: File): Promise<AvitoPreview> {
   const fd = new FormData();
   fd.append('file', file);
-  return json(await fetch('/api/import/avito/preview', { method: 'POST', body: fd }));
+  return json(await fetch(api('/api/import/avito/preview'), { method: 'POST', body: fd }));
 }
 
 export interface AvitoImportResult {
@@ -171,5 +193,5 @@ export async function importAvito(
   fd.append('mapping', JSON.stringify(mapping));
   fd.append('city', city);
   if (jobId) fd.append('jobId', jobId);
-  return json(await fetch('/api/import/avito', { method: 'POST', body: fd }));
+  return json(await fetch(api('/api/import/avito'), { method: 'POST', body: fd }));
 }
