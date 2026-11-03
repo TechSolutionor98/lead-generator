@@ -2,6 +2,7 @@ import type { LeadSource } from '../types.js';
 import { osmSource } from './osm.js';
 import { twogisSource } from './twogis.js';
 import { yandexSource } from './yandex.js';
+import { googleSource } from './google.js';
 import { avitoSource } from './avito.js';
 
 /**
@@ -11,7 +12,7 @@ import { avitoSource } from './avito.js';
  * then import it here and add it to the array below. Nothing else needs to
  * change — the job runner, API, and UI discover it automatically.
  */
-const ALL: LeadSource[] = [osmSource, twogisSource, yandexSource, avitoSource];
+const ALL: LeadSource[] = [osmSource, twogisSource, yandexSource, googleSource, avitoSource];
 
 export const sources = new Map<string, LeadSource>(ALL.map((s) => [s.id, s]));
 
