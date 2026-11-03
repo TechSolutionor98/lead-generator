@@ -375,22 +375,8 @@ export default function SourcePanel({
         />
       </section>
 
-      {/* Limit + delay + enrich */}
+      {/* Delay + enrich (limit is fixed at "maximum" — we always collect all) */}
       <section className="space-y-3">
-        <label className="flex items-center justify-between text-sm">
-          <span className="text-gray-700 dark:text-gray-300">Limit per query / place</span>
-          <input
-            type="number"
-            min={1}
-            max={10000}
-            value={config.limitPerQuery}
-            onChange={(e) =>
-              onChange({ ...config, limitPerQuery: Math.max(1, Number(e.target.value) || 1) })
-            }
-            className="w-20 rounded-md border border-gray-300 bg-white px-2 py-1 text-right text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-          />
-        </label>
-
         <label className="flex items-center justify-between text-sm">
           <span className="text-gray-700 dark:text-gray-300">
             Delay between leads

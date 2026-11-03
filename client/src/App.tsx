@@ -64,7 +64,8 @@ export default function App() {
       { country: 'Russia', countryCode: 'ru', region: 'Санкт-Петербург', city: 'Санкт-Петербург' },
     ],
     queries: DEFAULT_QUERIES,
-    limitPerQuery: 30,
+    // Always collect the maximum available per keyword/place (no UI cap).
+    limitPerQuery: 1_000_000,
     enrichEmail: true,
     delayMs: 0,
   });

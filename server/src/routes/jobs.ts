@@ -45,7 +45,8 @@ const createJobSchema = z.object({
       }),
     )
     .min(1, 'pick at least one country, region or city'),
-  limitPerQuery: z.coerce.number().int().min(1).max(10_000).default(50),
+  // Effectively unlimited: the UI always asks for the maximum available.
+  limitPerQuery: z.coerce.number().int().min(1).max(1_000_000).default(1_000_000),
   enrichEmail: z.boolean().default(false),
   // Pause (ms) after each lead, to pace scraping. 0–60000.
   delayMs: z.coerce.number().int().min(0).max(60_000).default(0),
