@@ -66,8 +66,12 @@ function nameRegexBlocks(params: SearchParams): string[] {
 }
 
 function buildQuery(params: SearchParams): string {
-  // Full search: tag filters + name regex, capped generously above `limit`.
-  const blocks = [...tagFilterBlocks(params), ...nameRegexBlocks(params)];
+  // Over a whole region/country the unindexed name-regex makes Overpass time
+  // out, so use indexed tag filters only there. City-level adds the name regex
+  // for broader recall over a small, fast area.
+  const blocks = params.wholeRegion
+    ? tagFilterBlocks(params)
+    : [...tagFilterBlocks(params), ...nameRegexBlocks(params)];
   const maxSize = Math.min(2000, Math.max(50, params.limit * 4));
   return `[out:json][timeout:60][maxsize:67108864];\n(\n${blocks.join('\n')}\n);\nout center tags ${maxSize};`;
 }
