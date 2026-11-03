@@ -8,6 +8,9 @@ npm-debug.log*
 .env
 .env.local
 
+# seed accounts (contains plaintext passwords) — keep only the .example
+server/seed-users.json
+
 # sqlite data store
 server/data/*.db
 server/data/*.db-wal

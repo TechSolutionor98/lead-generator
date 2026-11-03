@@ -55,6 +55,20 @@ export interface LeadDoc {
   seenCount: number; // how many times it has been encountered
 }
 
+/**
+ * A login account. `_id` is the lowercased username (so lookups are exact and
+ * usernames are unique). Only business/app users — created via the seed script,
+ * never a public signup. The password is stored as a bcrypt hash only.
+ */
+export interface UserDoc {
+  _id: string; // lowercased username
+  username: string; // display form of the username
+  name?: string | null;
+  passwordHash: string;
+  createdAt: string;
+  lastLoginAt?: string | null;
+}
+
 /** A cached geocoder result, keyed by the place string. */
 export interface GeoDoc {
   _id: string; // place key, e.g. "Москва, Москва"
@@ -120,6 +134,9 @@ export async function leads(): Promise<Collection<LeadDoc>> {
 }
 export async function geoCache(): Promise<Collection<GeoDoc>> {
   return (await getDb()).collection<GeoDoc>('geo_cache');
+}
+export async function users(): Promise<Collection<UserDoc>> {
+  return (await getDb()).collection<UserDoc>('users');
 }
 
 /** True if a connection string is configured (not whether it actually works). */

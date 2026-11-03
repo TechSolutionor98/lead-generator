@@ -24,6 +24,51 @@ function api(path: string): string {
   return `${API_BASE}${path}`;
 }
 
+// --- Auth token storage -----------------------------------------------------
+// The JWT from /api/auth/login is kept in localStorage and sent on every
+// request as `Authorization: Bearer <token>`. A 401 clears it and notifies the
+// app so it can show the login screen again.
+
+const TOKEN_KEY = 'grableads_token';
+let onUnauthorized: (() => void) | null = null;
+
+export function getToken(): string | null {
+  try {
+    return localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setToken(token: string | null): void {
+  try {
+    if (token) localStorage.setItem(TOKEN_KEY, token);
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    /* storage unavailable (private mode) — token stays in memory only */
+  }
+}
+
+/** Register a callback fired when the server rejects the token (401). */
+export function setUnauthorizedHandler(fn: (() => void) | null): void {
+  onUnauthorized = fn;
+}
+
+function authHeaders(extra?: HeadersInit): HeadersInit {
+  const t = getToken();
+  return { ...(extra || {}), ...(t ? { Authorization: `Bearer ${t}` } : {}) };
+}
+
+/** fetch() that attaches the auth token and surfaces 401s to the app. */
+async function authFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  const res = await fetch(api(path), { ...init, headers: authHeaders(init.headers) });
+  if (res.status === 401) {
+    setToken(null);
+    onUnauthorized?.();
+  }
+  return res;
+}
+
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -32,20 +77,50 @@ async function json<T>(res: Response): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+// --- Authentication ---------------------------------------------------------
+
+export interface AuthUser {
+  username: string;
+  name?: string | null;
+}
+
+/** Log in with username + password; stores the token on success. */
+export async function login(username: string, password: string): Promise<AuthUser> {
+  const res = await fetch(api('/api/auth/login'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  });
+  const data = await json<{ token: string; user: AuthUser }>(res);
+  setToken(data.token);
+  return data.user;
+}
+
+/** Validate the stored token and return the current user (or throw/null). */
+export async function getMe(): Promise<AuthUser> {
+  const data = await json<{ user: AuthUser }>(await authFetch('/api/auth/me'));
+  return data.user;
+}
+
+/** Forget the stored token. */
+export function logout(): void {
+  setToken(null);
+}
+
 export async function getSources(): Promise<SourceInfo[]> {
-  const data = await json<{ sources: SourceInfo[] }>(await fetch(api('/api/sources')));
+  const data = await json<{ sources: SourceInfo[] }>(await authFetch('/api/sources'));
   return data.sources;
 }
 
 export async function getCountries(): Promise<Country[]> {
-  const data = await json<{ countries: Country[] }>(await fetch(api('/api/countries')));
+  const data = await json<{ countries: Country[] }>(await authFetch('/api/countries'));
   return data.countries;
 }
 
 /** Regions/states for a country (auto-fetched when a country is picked). */
 export async function getRegions(countryCode: string): Promise<NamedCode[]> {
   const data = await json<{ regions: NamedCode[] }>(
-    await fetch(api(`/api/regions?country=${encodeURIComponent(countryCode)}`)),
+    await authFetch(`/api/regions?country=${encodeURIComponent(countryCode)}`),
   );
   return data.regions;
 }
@@ -53,8 +128,8 @@ export async function getRegions(countryCode: string): Promise<NamedCode[]> {
 /** Cities for a region (auto-fetched when a region is picked). */
 export async function getCities(countryCode: string, regionCode: string): Promise<string[]> {
   const data = await json<{ cities: string[] }>(
-    await fetch(
-      api(`/api/cities?country=${encodeURIComponent(countryCode)}&region=${encodeURIComponent(regionCode)}`),
+    await authFetch(
+      `/api/cities?country=${encodeURIComponent(countryCode)}&region=${encodeURIComponent(regionCode)}`,
     ),
   );
   return data.cities;
@@ -71,7 +146,7 @@ export interface CreateJobBody {
 
 export async function createJob(body: CreateJobBody): Promise<{ id: string }> {
   return json(
-    await fetch(api('/api/jobs'), {
+    await authFetch('/api/jobs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -80,7 +155,7 @@ export async function createJob(body: CreateJobBody): Promise<{ id: string }> {
 }
 
 export async function cancelJob(id: string): Promise<void> {
-  await fetch(api(`/api/jobs/${id}/cancel`), { method: 'POST' });
+  await authFetch(`/api/jobs/${id}/cancel`, { method: 'POST' });
 }
 
 export interface LeadsQuery {
@@ -96,10 +171,13 @@ export async function getLeads(jobId: string, q: LeadsQuery): Promise<LeadsRespo
   if (q.pageSize) params.set('pageSize', String(q.pageSize));
   if (q.search) params.set('search', q.search);
   if (q.excludeIndividuals) params.set('excludeIndividuals', 'true');
-  return json(await fetch(`/api/jobs/${jobId}/leads?${params.toString()}`));
+  return json(await authFetch(`/api/jobs/${jobId}/leads?${params.toString()}`));
 }
 
-/** Build the export URL for a job (csv|xlsx), optionally for selected ids. */
+/**
+ * Build the export path for a job (csv|xlsx), optionally for selected ids.
+ * Relative (no base/token) — `downloadExport` runs it through `authFetch`.
+ */
 export function exportUrl(
   jobId: string,
   format: 'csv' | 'xlsx',
@@ -108,7 +186,7 @@ export function exportUrl(
   const params = new URLSearchParams({ format });
   if (opts.ids && opts.ids.length) params.set('ids', opts.ids.join(','));
   if (opts.excludeIndividuals) params.set('excludeIndividuals', 'true');
-  return api(`/api/jobs/${jobId}/export?${params.toString()}`);
+  return `/api/jobs/${jobId}/export?${params.toString()}`;
 }
 
 /**
@@ -122,7 +200,7 @@ export async function downloadExport(
   format: 'csv' | 'xlsx',
   opts: { ids?: string[]; excludeIndividuals?: boolean } = {},
 ): Promise<void> {
-  const res = await fetch(exportUrl(jobId, format, opts));
+  const res = await authFetch(exportUrl(jobId, format, opts));
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `Export failed (HTTP ${res.status})`);
@@ -147,7 +225,11 @@ export async function downloadExport(
 
 /** Subscribe to a job's SSE stream. Returns an unsubscribe function. */
 export function subscribeJob(jobId: string, onEvent: (e: JobEvent) => void): () => void {
-  const es = new EventSource(api(`/api/jobs/${jobId}/events`));
+  // EventSource can't send an Authorization header, so the token goes in the
+  // query string (the server also accepts `access_token` there).
+  const token = getToken();
+  const qs = token ? `?access_token=${encodeURIComponent(token)}` : '';
+  const es = new EventSource(api(`/api/jobs/${jobId}/events${qs}`));
   es.onmessage = (ev) => {
     try {
       onEvent(JSON.parse(ev.data) as JobEvent);
@@ -173,7 +255,7 @@ export interface AvitoPreview {
 export async function previewAvito(file: File): Promise<AvitoPreview> {
   const fd = new FormData();
   fd.append('file', file);
-  return json(await fetch(api('/api/import/avito/preview'), { method: 'POST', body: fd }));
+  return json(await authFetch('/api/import/avito/preview', { method: 'POST', body: fd }));
 }
 
 export interface AvitoImportResult {
@@ -193,5 +275,5 @@ export async function importAvito(
   fd.append('mapping', JSON.stringify(mapping));
   fd.append('city', city);
   if (jobId) fd.append('jobId', jobId);
-  return json(await fetch(api('/api/import/avito'), { method: 'POST', body: fd }));
+  return json(await authFetch('/api/import/avito', { method: 'POST', body: fd }));
 }

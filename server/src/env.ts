@@ -29,6 +29,15 @@ const schema = z.object({
     .optional()
     .transform((v) => (v && v.length > 0 ? v : '')),
   MONGODB_DB: z.string().trim().default('grableads'),
+  // Secret used to sign login tokens (JWT). Set a long random string in .env for
+  // production. A dev default is provided so the server still boots locally.
+  JWT_SECRET: z
+    .string()
+    .trim()
+    .optional()
+    .transform((v) => (v && v.length > 0 ? v : 'dev-insecure-change-me')),
+  // How long a login stays valid (e.g. 7d, 24h, 30m).
+  JWT_EXPIRES_IN: z.string().trim().default('7d'),
   // Free 2GIS key. A no-cost "demo" key from the 2GIS Platform Manager works
   // here (see README). Empty → the 2GIS source is simply skipped; OSM + Yandex
   // + Avito still run. You may also paste the public web key from 2gis.ru.

@@ -2,6 +2,8 @@ import express from 'express';
 import { env } from './env.js';
 import { jobsRouter } from './routes/jobs.js';
 import { importRouter } from './routes/import.js';
+import { authRouter } from './routes/auth.js';
+import { requireAuth } from './auth.js';
 import { closeBrowser } from './browser.js';
 import { usingProxy } from './http.js';
 import { closeDb, connectAtStartup, isDbConfigured } from './mongo.js';
@@ -14,11 +16,12 @@ app.use(express.json({ limit: '2mb' }));
 app.use((_req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (_req.method === 'OPTIONS') return res.sendStatus(204);
   next();
 });
 
+// Public: health check and login do NOT require a token.
 app.get('/api/health', (_req, res) => {
   res.json({
     ok: true,
@@ -28,8 +31,11 @@ app.get('/api/health', (_req, res) => {
   });
 });
 
-app.use('/api', jobsRouter);
-app.use('/api', importRouter);
+app.use('/api', authRouter);
+
+// Everything below requires a valid login token.
+app.use('/api', requireAuth, jobsRouter);
+app.use('/api', requireAuth, importRouter);
 
 // Centralized error handler (e.g. multer file-size errors).
 app.use(

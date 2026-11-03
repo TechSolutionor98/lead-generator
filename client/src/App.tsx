@@ -7,12 +7,18 @@ import {
   cancelJob,
   getLeads,
   subscribeJob,
+  getToken,
+  getMe,
+  logout,
+  setUnauthorizedHandler,
+  type AuthUser,
 } from './api';
 import SourcePanel, { type SearchConfig } from './components/SourcePanel';
 import ProgressLog, { type LogLine } from './components/ProgressLog';
 import ResultsTable from './components/ResultsTable';
 import ExportBar from './components/ExportBar';
 import AvitoImport from './components/AvitoImport';
+import Login from './components/Login';
 
 const DEFAULT_QUERIES = [
   'компьютерный магазин',
@@ -25,6 +31,30 @@ const DEFAULT_QUERIES = [
 const PAGE_SIZE = 50;
 
 export default function App() {
+  // --- Auth gate ------------------------------------------------------------
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [authChecking, setAuthChecking] = useState(true);
+
+  // On mount: route server 401s back to the login screen, then validate any
+  // stored token so a returning user isn't forced to log in again.
+  useEffect(() => {
+    setUnauthorizedHandler(() => setUser(null));
+    if (!getToken()) {
+      setAuthChecking(false);
+      return;
+    }
+    getMe()
+      .then(setUser)
+      .catch(() => setUser(null))
+      .finally(() => setAuthChecking(false));
+    return () => setUnauthorizedHandler(null);
+  }, []);
+
+  const signOut = () => {
+    logout();
+    setUser(null);
+  };
+
   const [sources, setSources] = useState<SourceInfo[]>([]);
   const [countries, setCountries] = useState<Country[]>([]);
   const [config, setConfig] = useState<SearchConfig>({
@@ -56,8 +86,9 @@ export default function App() {
   const unsubRef = useRef<(() => void) | null>(null);
   const refetchTimer = useRef<number | null>(null);
 
-  // Load available sources + regions once; default-select enabled sources.
+  // Load available sources + regions once logged in; default-select enabled sources.
   useEffect(() => {
+    if (!user) return;
     getSources()
       .then((s) => {
         setSources(s);
@@ -66,7 +97,7 @@ export default function App() {
       })
       .catch(() => undefined);
     getCountries().then(setCountries).catch(() => undefined);
-  }, []);
+  }, [user]);
 
   const refreshLeads = useCallback(
     async (id: string, p = page) => {
@@ -174,6 +205,18 @@ export default function App() {
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
+  // Auth gate: show a spinner while validating, then the login screen if needed.
+  if (authChecking) {
+    return (
+      <div className="flex min-h-full items-center justify-center bg-gray-50 text-sm text-gray-400 dark:bg-gray-950">
+        Loading…
+      </div>
+    );
+  }
+  if (!user) {
+    return <Login onLoggedIn={setUser} />;
+  }
+
   return (
     <div className="min-h-full bg-gray-50 text-gray-900 dark:bg-gray-950 dark:text-gray-100">
       {/* Header */}
@@ -187,9 +230,20 @@ export default function App() {
               Russian B2B lead finder · for grabatoz.ae
             </span>
           </div>
-          <span className="rounded-full border border-gray-200 px-2.5 py-0.5 text-[11px] text-gray-500 dark:border-gray-700 dark:text-gray-400">
-            All results · no filtering
-          </span>
+          <div className="flex items-center gap-3">
+            <span className="hidden rounded-full border border-gray-200 px-2.5 py-0.5 text-[11px] text-gray-500 sm:inline dark:border-gray-700 dark:text-gray-400">
+              All results · no filtering
+            </span>
+            <span className="text-xs text-gray-500 dark:text-gray-400">
+              {user.name || user.username}
+            </span>
+            <button
+              onClick={signOut}
+              className="rounded-lg border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+            >
+              Sign out
+            </button>
+          </div>
         </div>
       </header>
 
