@@ -91,11 +91,11 @@ export default function App() {
     getSources()
       .then((s) => {
         setSources(s);
-        // Default-select the free sources we actually collect from (OSM + Yandex).
-        // 2GIS stays available but unchecked by default (names/addresses only).
-        const enabled = s
-          .filter((x) => x.enabled && x.id !== 'avito' && x.id !== 'twogis')
-          .map((x) => x.id);
+        // Default-check only the two strong, phone-rich map scrapers. The others
+        // (OSM, Bing, Google Search, 2GIS) stay available but off by default —
+        // tick them when you want extra coverage.
+        const DEFAULT_ON = ['yandex', 'google'];
+        const enabled = s.filter((x) => x.enabled && DEFAULT_ON.includes(x.id)).map((x) => x.id);
         setConfig((c) => ({ ...c, sources: enabled }));
       })
       .catch(() => undefined);
