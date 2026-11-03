@@ -65,7 +65,7 @@ export default function App() {
     ],
     queries: DEFAULT_QUERIES,
     limitPerQuery: 30,
-    enrichEmail: false,
+    enrichEmail: true,
     delayMs: 0,
   });
 
