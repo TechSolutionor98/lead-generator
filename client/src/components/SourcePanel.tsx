@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { Country, NamedCode, SourceInfo, Target } from '../types';
-import { getRegions, getCities, estimateCounts, type EstimateResult } from '../api';
+import { getRegions, getCities } from '../api';
 
 export interface SearchConfig {
   sources: string[];
@@ -43,11 +43,6 @@ export default function SourcePanel({
   const [cityOptions, setCityOptions] = useState<string[]>([]);
   const [loadingRegions, setLoadingRegions] = useState(false);
   const [loadingCities, setLoadingCities] = useState(false);
-
-  // "Check available leads" estimate state.
-  const [estimating, setEstimating] = useState(false);
-  const [estimate, setEstimate] = useState<EstimateResult | null>(null);
-  const [estimateError, setEstimateError] = useState<string | null>(null);
 
   // Default to the first country once the list loads.
   useEffect(() => {
@@ -136,32 +131,6 @@ export default function SourcePanel({
   });
 
   const delaySec = config.delayMs / 1000;
-
-  // Ask the server how many leads are available per keyword, without collecting.
-  const runEstimate = async () => {
-    const queries = config.queries
-      .split('\n')
-      .map((q) => q.trim())
-      .filter(Boolean);
-    if (config.sources.length === 0 || config.targets.length === 0 || queries.length === 0) return;
-    setEstimateError(null);
-    setEstimate(null);
-    setEstimating(true);
-    try {
-      const res = await estimateCounts({
-        sources: config.sources,
-        queries,
-        targets: config.targets,
-      });
-      setEstimate(res);
-    } catch (e) {
-      setEstimateError((e as Error).message || 'Estimate failed');
-    } finally {
-      setEstimating(false);
-    }
-  };
-
-  const fmt = (n: number | null) => (typeof n === 'number' ? n.toLocaleString() : 'n/a');
 
   return (
     <div className="flex flex-col gap-5">
@@ -406,75 +375,6 @@ export default function SourcePanel({
             Enrich email + phone from business websites
           </span>
         </label>
-      </section>
-
-      {/* Check available leads (estimate) */}
-      <section className="space-y-2">
-        <button
-          type="button"
-          onClick={runEstimate}
-          disabled={
-            estimating ||
-            running ||
-            config.sources.length === 0 ||
-            config.targets.length === 0
-          }
-          className="w-full rounded-md border border-indigo-300 px-4 py-2 text-sm font-semibold text-indigo-700 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-indigo-700 dark:text-indigo-300 dark:hover:bg-indigo-900/30"
-        >
-          {estimating ? 'Checking…' : '🔎 Check available leads'}
-        </button>
-
-        {estimateError && (
-          <div className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-950/50 dark:text-red-300">
-            {estimateError}
-          </div>
-        )}
-
-        {estimate && (
-          <div className="rounded-md border border-gray-200 bg-gray-50 p-3 text-xs dark:border-gray-700 dark:bg-gray-800/50">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="font-semibold text-gray-700 dark:text-gray-200">
-                Available (approx)
-              </span>
-              <span className="rounded-full bg-indigo-100 px-2 py-0.5 font-semibold text-indigo-700 dark:bg-indigo-900 dark:text-indigo-200">
-                ~{fmt(estimate.grandTotal)} total
-              </span>
-            </div>
-            <div className="mb-2 text-gray-400">
-              across {estimate.places.length} place{estimate.places.length === 1 ? '' : 's'}:{' '}
-              {estimate.places.join(', ') || '—'}
-            </div>
-            <div className="space-y-1.5">
-              {estimate.queries.map((q) => (
-                <div
-                  key={q.query}
-                  className="rounded border border-gray-200 bg-white px-2 py-1.5 dark:border-gray-700 dark:bg-gray-900"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="truncate font-medium text-gray-800 dark:text-gray-100" title={q.query}>
-                      {q.query}
-                    </span>
-                    <span className="shrink-0 font-semibold text-indigo-600 dark:text-indigo-300">
-                      ~{fmt(q.total)}
-                    </span>
-                  </div>
-                  <div className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] text-gray-500 dark:text-gray-400">
-                    {q.sources.map((s) => (
-                      <span key={s.sourceId}>
-                        {s.name}: {s.supported ? fmt(s.count) : 'n/a'}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="mt-2 text-[11px] leading-snug text-gray-400">
-              {estimate.notes.map((n, i) => (
-                <div key={i}>• {n}</div>
-              ))}
-            </div>
-          </div>
-        )}
       </section>
 
       {/* Start / Cancel */}
