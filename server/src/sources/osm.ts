@@ -111,8 +111,9 @@ async function overpassRequest(
   body: string,
   params: SearchParams,
   timeoutMs = 70_000,
+  maxMirrors = OVERPASS_MIRRORS.length,
 ): Promise<{ elements?: OverpassElement[] }> {
-  for (const url of OVERPASS_MIRRORS) {
+  for (const url of OVERPASS_MIRRORS.slice(0, maxMirrors)) {
     if (params.signal?.aborted) break;
     try {
       const res = await enqueue<{ status: number; data: { elements?: OverpassElement[] } }>(
@@ -215,7 +216,9 @@ export const osmSource: LeadSource = {
       return;
     }
 
-    const data = await overpassRequest(buildQuery(params), params, 40_000);
+    // Try the 2 best mirrors, 50s each, so a working-but-slow Overpass (~30-45s)
+    // succeeds, but an overloaded network gives up in ~100s rather than hanging.
+    const data = await overpassRequest(buildQuery(params), params, 50_000, 2);
 
     const elements = data?.elements ?? [];
     const seen = new Set<string>();
