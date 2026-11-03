@@ -69,26 +69,29 @@ function extractContacts(item: TwoGisItem): {
   return out;
 }
 
-function itemToLead(item: TwoGisItem, city: string): Lead | undefined {
+function itemToLead(item: TwoGisItem, city: string, countryCode: string): Lead | undefined {
   const name = item.name || item.full_name;
   if (!name) return undefined;
   const { phone, email, website } = extractContacts(item);
-  return finalizeLead({
-    source: SOURCE_ID,
-    name,
-    category: item.rubrics?.[0]?.name,
-    phone,
-    email,
-    website,
-    address: item.full_address_name || item.address_name,
-    city,
-    lat: item.point?.lat,
-    lng: item.point?.lon,
-    rating: item.reviews?.rating,
-    reviewsCount: item.reviews?.review_count,
-    sourceUrl: item.id ? `https://2gis.ru/firm/${item.id.split('_')[0]}` : undefined,
-    collectedAt: new Date().toISOString(),
-  });
+  return finalizeLead(
+    {
+      source: SOURCE_ID,
+      name,
+      category: item.rubrics?.[0]?.name,
+      phone,
+      email,
+      website,
+      address: item.full_address_name || item.address_name,
+      city,
+      lat: item.point?.lat,
+      lng: item.point?.lon,
+      rating: item.reviews?.rating,
+      reviewsCount: item.reviews?.review_count,
+      sourceUrl: item.id ? `https://2gis.ru/firm/${item.id.split('_')[0]}` : undefined,
+      collectedAt: new Date().toISOString(),
+    },
+    countryCode,
+  );
 }
 
 export const twogisSource: LeadSource = {
@@ -173,7 +176,7 @@ export const twogisSource: LeadSource = {
 
       for (const item of items) {
         if (yielded >= params.limit) break;
-        const lead = itemToLead(item, params.city);
+        const lead = itemToLead(item, params.city, params.countryCode);
         if (!lead) continue;
         yielded += 1;
         yield lead;

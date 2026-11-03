@@ -47,6 +47,25 @@ describe('normalizePhone', () => {
   it('returns undefined for an implausible length', () => {
     expect(normalizePhone('+7 495 123 45 67 89')).toBeUndefined();
   });
+
+  it('normalizes a Pakistani number to +92 (not +7)', () => {
+    // National mobile with trunk 0 → +92 + 10 national digits.
+    expect(normalizePhone('0300 1234567', 'pk')).toBe('+923001234567');
+    // Already international forms are trusted.
+    expect(normalizePhone('+92 300 1234567', 'pk')).toBe('+923001234567');
+    expect(normalizePhone('0092 42 35761234', 'pk')).toBe('+924235761234');
+  });
+
+  it('normalizes a UAE number to +971', () => {
+    expect(normalizePhone('04 123 4567', 'ae')).toBe('+97141234567');
+    expect(normalizePhone('+971 50 123 4567', 'ae')).toBe('+971501234567');
+  });
+
+  it('does not force a Pakistani number into the Russian +7 format', () => {
+    const out = normalizePhone('0300 1234567', 'pk');
+    expect(out?.startsWith('+7')).toBe(false);
+    expect(out?.startsWith('+92')).toBe(true);
+  });
 });
 
 describe('primaryPhone', () => {

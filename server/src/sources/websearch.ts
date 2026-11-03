@@ -2,6 +2,7 @@ import type { BrowserContext, Page } from 'playwright';
 import { newContext } from '../browser.js';
 import { finalizeLead } from '../dedup.js';
 import { websiteDomain } from '../dedup.js';
+import { countryMeta, type CountryMeta } from '../country.js';
 import type { Lead, LeadSource, SearchParams } from '../types.js';
 
 /**
@@ -40,19 +41,28 @@ function cleanTitle(t: string): string {
 }
 
 /** Make a website lead from a search hit, or undefined if it's noise. */
-function hitToLead(sourceId: string, title: string, url: string, city: string): Lead | undefined {
+function hitToLead(
+  sourceId: string,
+  title: string,
+  url: string,
+  city: string,
+  countryCode: string,
+): Lead | undefined {
   const domain = websiteDomain(url);
   if (!domain || NOISE_DOMAIN.test(domain)) return undefined;
   const name = cleanTitle(title);
   if (!name) return undefined;
-  return finalizeLead({
-    source: sourceId,
-    name,
-    website: url,
-    city,
-    sourceUrl: url,
-    collectedAt: new Date().toISOString(),
-  });
+  return finalizeLead(
+    {
+      source: sourceId,
+      name,
+      website: url,
+      city,
+      sourceUrl: url,
+      collectedAt: new Date().toISOString(),
+    },
+    countryCode,
+  );
 }
 
 /** Detect a block / captcha / consent interstitial. */
@@ -114,7 +124,7 @@ async function readGoogle(page: Page): Promise<{ title: string; url: string }[]>
 interface EngineConfig {
   id: string;
   name: string;
-  pageUrl: (query: string, first: number) => string;
+  pageUrl: (query: string, first: number, meta: CountryMeta) => string;
   read: (page: Page) => Promise<{ title: string; url: string }[]>;
   pageStep: number; // index increment per page
   maxPages: number;
@@ -133,12 +143,13 @@ function makeWebSearchSource(cfg: EngineConfig): LeadSource {
       try {
         context = await newContext();
         const page = await context.newPage();
+        const meta = countryMeta(params.countryCode);
         const query = `${params.query} ${params.city}`.trim();
 
         for (let p = 0; p < cfg.maxPages && yielded < params.limit; p++) {
           if (params.signal?.aborted) break;
           const first = 1 + p * cfg.pageStep;
-          await page.goto(cfg.pageUrl(query, first), {
+          await page.goto(cfg.pageUrl(query, first, meta), {
             waitUntil: 'domcontentloaded',
             timeout: 40_000,
           });
@@ -160,7 +171,7 @@ function makeWebSearchSource(cfg: EngineConfig): LeadSource {
           let newOnPage = 0;
           for (const h of hits) {
             if (yielded >= params.limit) break;
-            const lead = hitToLead(cfg.id, h.title, h.url, params.city);
+            const lead = hitToLead(cfg.id, h.title, h.url, params.city, params.countryCode);
             if (!lead || !lead.website) continue;
             const dom = websiteDomain(lead.website) || lead.website;
             if (seenDomains.has(dom)) continue;
@@ -185,8 +196,8 @@ function makeWebSearchSource(cfg: EngineConfig): LeadSource {
 export const bingSource = makeWebSearchSource({
   id: 'bing',
   name: 'Bing Search',
-  pageUrl: (q, first) =>
-    `https://www.bing.com/search?q=${encodeURIComponent(q)}&setlang=ru&first=${first}`,
+  pageUrl: (q, first, meta) =>
+    `https://www.bing.com/search?q=${encodeURIComponent(q)}&setlang=${meta.hl}&cc=${meta.gl}&first=${first}`,
   read: readBing,
   pageStep: 10,
   maxPages: 5,
@@ -195,8 +206,8 @@ export const bingSource = makeWebSearchSource({
 export const googleSearchSource = makeWebSearchSource({
   id: 'google_search',
   name: 'Google Search',
-  pageUrl: (q, first) =>
-    `https://www.google.com/search?q=${encodeURIComponent(q)}&hl=ru&num=20&start=${first - 1}`,
+  pageUrl: (q, first, meta) =>
+    `https://www.google.com/search?q=${encodeURIComponent(q)}&hl=${meta.hl}&gl=${meta.gl}&num=20&start=${first - 1}`,
   read: readGoogle,
   pageStep: 20,
   maxPages: 3,

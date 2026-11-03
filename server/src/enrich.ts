@@ -42,7 +42,7 @@ interface SiteContacts {
   phone?: string;
 }
 
-async function fetchContactsFromSite(website: string): Promise<SiteContacts> {
+async function fetchContactsFromSite(website: string, countryCode?: string): Promise<SiteContacts> {
   const domain = websiteDomain(website);
   if (!domain) return {};
   const base = /^https?:\/\//.test(website) ? website.replace(/\/+$/, '') : `https://${domain}`;
@@ -67,7 +67,7 @@ async function fetchContactsFromSite(website: string): Promise<SiteContacts> {
 
       // Phones: tel: links are reliable (the site's own click-to-call).
       for (const m of res.data.matchAll(/tel:([+\d()\s-]{7,})/gi)) {
-        const norm = primaryPhone(m[1]);
+        const norm = primaryPhone(m[1], countryCode);
         if (norm) phones.push(norm);
       }
 
@@ -86,9 +86,9 @@ async function fetchContactsFromSite(website: string): Promise<SiteContacts> {
  * Enrich a lead (returns a new object). Fills a missing email and/or phone from
  * the business's own website. No-op if it has no website, or already has both.
  */
-export async function enrichLead(lead: Lead): Promise<Lead> {
+export async function enrichLead(lead: Lead, countryCode?: string): Promise<Lead> {
   if (!lead.website || (lead.email && lead.phone)) return lead;
-  const found = await enrichQueue.add(() => fetchContactsFromSite(lead.website!));
+  const found = await enrichQueue.add(() => fetchContactsFromSite(lead.website!, countryCode));
   if (!found) return lead;
   return {
     ...lead,

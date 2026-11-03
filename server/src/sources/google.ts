@@ -1,6 +1,7 @@
 import type { BrowserContext, Page } from 'playwright';
 import { newContext } from '../browser.js';
-import { finalizeLead } from '../dedup.js';
+import { finalizeLead, extractPhone } from '../dedup.js';
+import { countryMeta } from '../country.js';
 import type { Lead, LeadSource, SearchParams } from '../types.js';
 
 /**
@@ -59,7 +60,8 @@ interface Snippet {
   name?: string;
   category?: string;
   address?: string;
-  phone?: string;
+  /** Raw card text — the phone is pulled from it in Node (country-aware). */
+  rawText?: string;
   rating?: number;
   reviews?: number;
   href?: string;
@@ -80,7 +82,6 @@ async function readCards(page: Page): Promise<Snippet[]> {
       const href = link.getAttribute('href') || undefined;
       const text = (art.textContent || '').replace(/\s+/g, ' ').trim();
 
-      const phoneM = text.match(/(?:\+?7|8)[\d\s()\-]{9,}\d/);
       const ratM = text.match(/(\d+[.,]\d+)\s*\(([\d\s ]+)\)/);
 
       // category + address from the obfuscated info spans, with a text fallback.
@@ -103,7 +104,7 @@ async function readCards(page: Page): Promise<Snippet[]> {
         if (addr) {
           // The info span glues phone + opening-hours onto the address; strip them.
           addr = addr
-            .replace(/(?:\+?7|8)[\d\s()\-]{7,}\d.*$/, '')
+            .replace(/\+?\d[\d\s()\-]{7,}\d.*$/, '')
             .replace(/(Закрыт|Открыт|Откроется|Скоро закро|Круглосуточно|Временно|Ещё\b).*$/i, '')
             .trim()
             .replace(/[·,\s]+$/, '');
@@ -115,7 +116,7 @@ async function readCards(page: Page): Promise<Snippet[]> {
         name,
         category,
         address,
-        phone: phoneM ? phoneM[0] : undefined,
+        rawText: text,
         rating: ratM ? parseFloat(ratM[1].replace(',', '.')) : undefined,
         reviews: ratM ? parseInt(ratM[2].replace(/[\s ]/g, ''), 10) || undefined : undefined,
         href,
@@ -155,8 +156,11 @@ export const googleSource: LeadSource = {
     try {
       context = await newContext();
       const page = await context.newPage();
+      const meta = countryMeta(params.countryCode);
       const text = `${params.query} ${params.city}`.trim();
-      const url = `https://www.google.com/maps/search/${encodeURIComponent(text)}/?hl=ru`;
+      // hl → label language (English outside Russia, so categories aren't Russian);
+      // gl → region bias, so results match the country being searched.
+      const url = `https://www.google.com/maps/search/${encodeURIComponent(text)}/?hl=${meta.hl}&gl=${meta.gl}`;
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45_000 });
       await sleep(jitter(2500, 4000));
 
@@ -189,18 +193,22 @@ export const googleSource: LeadSource = {
       for (const c of cards) {
         if (params.signal?.aborted || yielded >= params.limit) break;
         yielded += 1;
-        yield finalizeLead({
-          source: SOURCE_ID,
-          name: c.name!,
-          category: c.category,
-          phone: c.phone,
-          address: c.address,
-          city: params.city,
-          rating: c.rating,
-          reviewsCount: c.reviews,
-          sourceUrl: c.href ? (c.href.startsWith('http') ? c.href : `https://www.google.com${c.href}`) : undefined,
-          collectedAt: new Date().toISOString(),
-        });
+        yield finalizeLead(
+          {
+            source: SOURCE_ID,
+            name: c.name!,
+            category: c.category,
+            // Pull the phone from the card text, validated for this country.
+            phone: extractPhone(c.rawText, params.countryCode),
+            address: c.address,
+            city: params.city,
+            rating: c.rating,
+            reviewsCount: c.reviews,
+            sourceUrl: c.href ? (c.href.startsWith('http') ? c.href : `https://www.google.com${c.href}`) : undefined,
+            collectedAt: new Date().toISOString(),
+          },
+          params.countryCode,
+        );
       }
     } catch (err) {
       params.log?.(`[google] error: ${(err as Error).message}`);

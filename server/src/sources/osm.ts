@@ -156,7 +156,7 @@ function tagAddress(tags: Record<string, string>): string | undefined {
   return parts.length ? parts.join(', ') : tags['addr:full'] || undefined;
 }
 
-function elementToLead(el: OverpassElement, city: string): Lead | undefined {
+function elementToLead(el: OverpassElement, city: string, countryCode: string): Lead | undefined {
   const tags = el.tags ?? {};
   const name = tags['name'] || tags['name:ru'] || tags['official_name'];
   if (!name) return undefined;
@@ -166,20 +166,23 @@ function elementToLead(el: OverpassElement, city: string): Lead | undefined {
   const category =
     tags['shop'] || tags['office'] || tags['craft'] || tags['amenity'] || undefined;
 
-  return finalizeLead({
-    source: SOURCE_ID,
-    name,
-    category,
-    phone: tags['phone'] || tags['contact:phone'] || tags['contact:mobile'],
-    email: tags['email'] || tags['contact:email'],
-    website: tags['website'] || tags['contact:website'] || tags['url'],
-    address: tagAddress(tags),
-    city,
-    lat,
-    lng: lon,
-    sourceUrl: `https://www.openstreetmap.org/${el.type}/${el.id}`,
-    collectedAt: new Date().toISOString(),
-  });
+  return finalizeLead(
+    {
+      source: SOURCE_ID,
+      name,
+      category,
+      phone: tags['phone'] || tags['contact:phone'] || tags['contact:mobile'],
+      email: tags['email'] || tags['contact:email'],
+      website: tags['website'] || tags['contact:website'] || tags['url'],
+      address: tagAddress(tags),
+      city,
+      lat,
+      lng: lon,
+      sourceUrl: `https://www.openstreetmap.org/${el.type}/${el.id}`,
+      collectedAt: new Date().toISOString(),
+    },
+    countryCode,
+  );
 }
 
 export const osmSource: LeadSource = {
@@ -225,7 +228,7 @@ export const osmSource: LeadSource = {
     let yielded = 0;
     for (const el of elements) {
       if (yielded >= params.limit) break;
-      const lead = elementToLead(el, params.city);
+      const lead = elementToLead(el, params.city, params.countryCode);
       if (!lead) continue;
       // Light in-source dedup so a shop tagged twice isn't yielded twice.
       const key = (lead.name + '|' + (lead.address ?? '')).toLowerCase();

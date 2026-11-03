@@ -238,19 +238,22 @@ export const yandexSource: LeadSource = {
         }
 
         yielded += 1;
-        yield finalizeLead({
-          source: SOURCE_ID,
-          name: s.name!,
-          category: s.category,
-          phone,
-          website,
-          address: s.address,
-          city: params.city,
-          rating,
-          reviewsCount: reviews,
-          sourceUrl: orgUrl,
-          collectedAt: new Date().toISOString(),
-        });
+        yield finalizeLead(
+          {
+            source: SOURCE_ID,
+            name: s.name!,
+            category: s.category,
+            phone,
+            website,
+            address: s.address,
+            city: params.city,
+            rating,
+            reviewsCount: reviews,
+            sourceUrl: orgUrl,
+            collectedAt: new Date().toISOString(),
+          },
+          params.countryCode,
+        );
       }
     } catch (err) {
       params.log?.(`[yandex] error: ${(err as Error).message}`);

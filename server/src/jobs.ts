@@ -99,7 +99,15 @@ async function runJob(jobId: string, params: JobParams): Promise<void> {
     emit(jobId, { type: 'log', level, message });
 
   // Resolve each target to coordinates once (cached across sources/queries).
-  const places: { label: string; region: string; wholeRegion: boolean; geo: GeoBox }[] = [];
+  type Place = {
+    label: string;
+    region: string;
+    country: string;
+    countryCode: string;
+    wholeRegion: boolean;
+    geo: GeoBox;
+  };
+  const places: Place[] = [];
   for (const t of params.targets) {
     const geo = await resolveGeo(t.countryCode, t.country, t.region, t.city, (m) => log('info', m));
     const label = t.city || t.region || t.country;
@@ -108,7 +116,14 @@ async function runJob(jobId: string, params: JobParams): Promise<void> {
       continue;
     }
     const scope = t.city ? '' : t.region ? ' (whole region)' : ' (whole country)';
-    places.push({ label, region: t.region || t.country, wholeRegion: !t.city, geo });
+    places.push({
+      label,
+      region: t.region || t.country,
+      country: t.country,
+      countryCode: t.countryCode,
+      wholeRegion: !t.city,
+      geo,
+    });
     log('info', `📍 ${label}${scope} located`);
   }
 
@@ -116,7 +131,7 @@ async function runJob(jobId: string, params: JobParams): Promise<void> {
   const tasks: {
     sourceId: string;
     query: string;
-    place: { label: string; region: string; wholeRegion: boolean; geo: GeoBox };
+    place: Place;
   }[] = [];
   for (const sourceId of params.sources) {
     const src = getSource(sourceId);
@@ -168,6 +183,8 @@ async function runJob(jobId: string, params: JobParams): Promise<void> {
             query: t.query,
             city: t.place.label,
             region: t.place.region,
+            country: t.place.country,
+            countryCode: t.place.countryCode,
             wholeRegion: t.place.wholeRegion,
             geo: t.place.geo,
             limit: params.limitPerQuery,
@@ -175,7 +192,7 @@ async function runJob(jobId: string, params: JobParams): Promise<void> {
             signal: rj.abort.signal,
           })) {
             if (rj.abort.signal.aborted) break;
-            lead = await maybeEnrich(lead, params);
+            lead = await maybeEnrich(lead, params, t.place.countryCode);
             const inserted = await insertLead(jobId, lead);
             if (inserted) emit(jobId, { type: 'lead', lead });
             // Optional pacing: pause after each lead (cancellable).
@@ -194,11 +211,11 @@ async function runJob(jobId: string, params: JobParams): Promise<void> {
   await finish(jobId, rj.abort.signal.aborted ? 'cancelled' : 'done');
 }
 
-async function maybeEnrich(lead: Lead, params: JobParams): Promise<Lead> {
+async function maybeEnrich(lead: Lead, params: JobParams, countryCode: string): Promise<Lead> {
   const wantEnrich = params.enrichEmail || env.ENRICH_EMAIL;
   if (!wantEnrich) return lead;
   try {
-    return await enrichLead(lead);
+    return await enrichLead(lead, countryCode);
   } catch {
     return lead;
   }

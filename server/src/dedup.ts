@@ -1,43 +1,88 @@
 import type { Lead } from './types.js';
+import { countryMeta } from './country.js';
 
 /**
- * Normalize a Russian phone number to E.164 (+7XXXXXXXXXX).
+ * Normalize a phone number to E.164 (+<country><national>) for a given country.
  *
+ * Country-aware (defaults to Russia when no country is given, for backward
+ * compatibility):
  * - Strips spaces, dashes, parentheses, dots.
- * - A leading domestic trunk "8" becomes country code "7".
- * - Accepts input with or without a leading "+".
- * - Returns undefined when the result is not a plausible 11-digit RU number
- *   (country code 7 + 10 national digits).
+ * - A number already in international form (leading "+" or "00") is trusted.
+ * - A national number has its trunk prefix (e.g. RU "8", most countries "0")
+ *   replaced with the country's dial code.
+ * - Returns undefined when the national length is not plausible for the country
+ *   (so a Pakistani number becomes +92…, and junk is rejected rather than
+ *   force-fitted to the wrong country).
+ *
+ * @param countryCode ISO 3166-1 alpha-2 (e.g. "ru", "pk"). Defaults to "ru".
  */
-export function normalizePhone(raw?: string | null): string | undefined {
+export function normalizePhone(raw?: string | null, countryCode?: string): string | undefined {
   if (!raw) return undefined;
+  const meta = countryMeta(countryCode);
+  const isIntl = /^\s*\+/.test(raw) || /^\s*00\d/.test(raw);
+
   // Keep only digits (drop +, spaces, punctuation, letters).
   let digits = raw.replace(/\D+/g, '');
   if (!digits) return undefined;
 
-  // Domestic "8XXXXXXXXXX" → "7XXXXXXXXXX".
-  if (digits.length === 11 && digits.startsWith('8')) {
-    digits = '7' + digits.slice(1);
-  }
-  // Bare 10-digit national number → prefix country code 7.
-  if (digits.length === 10) {
-    digits = '7' + digits;
+  if (isIntl) {
+    // Already international: "00<cc>…" → "<cc>…", a leading "+" dropped already.
+    if (digits.startsWith('00')) digits = digits.slice(2);
+  } else if (meta.dial && digits.startsWith(meta.dial) && withinNat(digits.length - meta.dial.length, meta)) {
+    // National number that already carries its own country code (no "+").
+    // (digits is already "<dial><national>".)
+  } else {
+    // Plain national number: strip the trunk prefix, prefix the dial code.
+    let nat = digits;
+    if (meta.trunk && nat.length > meta.trunk.length && nat.startsWith(meta.trunk)) {
+      nat = nat.slice(meta.trunk.length);
+    }
+    digits = meta.dial + nat;
   }
 
-  // Must be an 11-digit Russian number starting with 7.
-  if (digits.length !== 11 || !digits.startsWith('7')) return undefined;
+  // Validate. For this country's own numbers, enforce its national length;
+  // for a number from another country (kept via the intl branch), allow the
+  // general E.164 range (8–15 digits total).
+  if (meta.dial && digits.startsWith(meta.dial)) {
+    if (!withinNat(digits.length - meta.dial.length, meta)) return undefined;
+  } else if (digits.length < 8 || digits.length > 15) {
+    return undefined;
+  }
 
   return '+' + digits;
+}
+
+/** Is a national significant-number length plausible for this country? */
+function withinNat(len: number, meta: { natMin: number; natMax: number }): boolean {
+  return len >= meta.natMin && len <= meta.natMax;
 }
 
 /**
  * Format the FIRST phone found in a free-text string (some sources return
  * several joined by commas). Returns the normalized primary number.
  */
-export function primaryPhone(raw?: string | null): string | undefined {
+export function primaryPhone(raw?: string | null, countryCode?: string): string | undefined {
   if (!raw) return undefined;
   const first = raw.split(/[,;/]+/)[0];
-  return normalizePhone(first);
+  return normalizePhone(first, countryCode);
+}
+
+// A phone-shaped token: optional "+", then a run of digits and separators long
+// enough to be a phone (≥8 chars overall). Used to pull a number out of card
+// text where sources don't expose it in a dedicated element.
+const PHONE_CANDIDATE = /\+?\d[\d\s().\-]{6,}\d/g;
+
+/**
+ * Extract the first plausible phone number from a block of free text, validated
+ * for the given country. Returns the normalized E.164 number, or undefined.
+ */
+export function extractPhone(text?: string | null, countryCode?: string): string | undefined {
+  if (!text) return undefined;
+  for (const m of text.matchAll(PHONE_CANDIDATE)) {
+    const norm = normalizePhone(m[0], countryCode);
+    if (norm) return norm;
+  }
+  return undefined;
 }
 
 /** Lowercased registrable host of a URL, without "www." or path. */
@@ -71,8 +116,8 @@ export function slug(raw?: string | null): string {
  *   3. slug(name) + "|" + slug(address)
  * This matches the spec: dedup by phone OR website domain OR name+address.
  */
-export function dedupKey(lead: Lead): string {
-  const phone = primaryPhone(lead.phone);
+export function dedupKey(lead: Lead, countryCode?: string): string {
+  const phone = primaryPhone(lead.phone, countryCode);
   if (phone) return 'tel:' + phone;
 
   const domain = websiteDomain(lead.website);
@@ -107,9 +152,13 @@ export function isIndividual(lead: Lead): boolean {
   return PERSONAL_NAME.test(name);
 }
 
-/** Apply normalization + isIndividual tagging to a freshly-collected lead. */
-export function finalizeLead(lead: Lead): Lead {
-  const phone = primaryPhone(lead.phone) ?? lead.phone;
+/**
+ * Apply normalization + isIndividual tagging to a freshly-collected lead.
+ * @param countryCode ISO 3166-1 alpha-2 of the search, so the phone normalizes
+ *   to the right country (defaults to Russia when omitted).
+ */
+export function finalizeLead(lead: Lead, countryCode?: string): Lead {
+  const phone = primaryPhone(lead.phone, countryCode) ?? lead.phone;
   const out: Lead = { ...lead, phone };
   out.isIndividual = isIndividual(out);
   return out;

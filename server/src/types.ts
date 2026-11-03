@@ -50,6 +50,10 @@ export interface SearchParams {
   city: string;
   /** The region this search belongs to. */
   region: string;
+  /** Country display name, e.g. "Pakistan". */
+  country: string;
+  /** ISO 3166-1 alpha-2 of the search, e.g. "pk" — drives locale + phone format. */
+  countryCode: string;
   /** Whether this is a whole-region search (no specific city). */
   wholeRegion: boolean;
   /** Resolved coordinates/bbox for this place. */
