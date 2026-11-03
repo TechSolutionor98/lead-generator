@@ -18,8 +18,10 @@ export const http: AxiosInstance = axios.create({
   // Route both http and https traffic through the proxy when configured.
   httpAgent: proxyAgent,
   httpsAgent: proxyAgent,
-  // We handle non-2xx ourselves (for backoff), so don't throw on all of them.
-  validateStatus: (s) => s >= 200 && s < 500,
+  // We handle non-2xx ourselves (incl. 5xx → backoff/retry), so never throw on
+  // status. This lets adapters see 429/502/503/504 (e.g. Overpass overloaded)
+  // and retry them, instead of axios throwing before the retry logic runs.
+  validateStatus: () => true,
 });
 
 export const usingProxy = Boolean(env.PROXY_URL);
