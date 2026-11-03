@@ -24,14 +24,18 @@ declare const document: any;
 const SOURCE_ID = 'yandex';
 
 // --- Centralized selectors (repair here if Yandex changes its markup) -------
+// Yandex A/B-tests its container classes, so we DON'T rely on an exact snippet
+// class. The stable anchor is the org link (a[href*="/maps/org/"]); we read each
+// business from the card around its link. Inner fields use attribute-contains
+// selectors so a class rename doesn't break them.
 const SEL = {
-  resultsList: '.search-list-view__list, .scroll__container',
-  snippet: '.search-business-snippet-view',
-  snippetName: '.search-business-snippet-view__title',
-  snippetCategory: '.search-business-snippet-view__category',
-  snippetAddress: '.search-business-snippet-view__address',
+  resultsList: '[class*="search-list-view"], [class*="scroll__container"]',
+  snippet: '[class*="search-snippet-view"]', // for scroll/wait progress only
+  orgLink: 'a[href*="/maps/org/"]',
+  snippetName: '[class*="snippet-view__title"], [class*="title"]',
+  snippetCategory: '[class*="snippet-view__category"], [class*="category"]',
+  snippetAddress: '[class*="snippet-view__address"], [class*="address"]',
   snippetRating: '[class*="business-rating-badge"], [class*="rating"]',
-  snippetLink: 'a[href*="/maps/org/"]',
   captcha: 'form#checkbox-captcha-form, [class*="SmartCaptcha"], [class*="CheckboxCaptcha"]',
   // Card (opened org) selectors.
   cardTitle: '[class*="card-title-view__title"]',
@@ -63,24 +67,37 @@ async function readSnippets(page: Page): Promise<Snippet[]> {
   // NB: the callback is serialized to the browser. Do NOT declare inner named
   // functions here — tsx/esbuild rewrites them with a `__name` helper that is
   // undefined in page context. Keep everything inline.
-  return page.locator(SEL.snippet).evaluateAll(
-    (nodes: any[], sel: Record<string, string>) =>
-      nodes.map((el: any) => {
-        const nameN = el.querySelector(sel.snippetName);
-        const catN = el.querySelector(sel.snippetCategory);
-        const addrN = el.querySelector(sel.snippetAddress);
-        const ratN = el.querySelector(sel.snippetRating);
-        const link = el.querySelector(sel.snippetLink);
-        return {
-          name: nameN && nameN.textContent ? nameN.textContent.trim() : undefined,
-          category: catN && catN.textContent ? catN.textContent.trim() : undefined,
-          address: addrN && addrN.textContent ? addrN.textContent.trim() : undefined,
-          ratingText: ratN && ratN.textContent ? ratN.textContent.trim() : undefined,
-          href: link ? link.getAttribute('href') || undefined : undefined,
-        };
-      }),
-    SEL,
-  );
+  //
+  // Anchor on the stable org link, then read each business from the card around
+  // it. Normalize the href to the base org URL (dropping /gallery//reviews/…)
+  // and keep the FIRST link per org (the main one that carries name/cat/addr),
+  // which also drops the gallery/review sub-links.
+  return page.evaluate((sel: Record<string, string>) => {
+    const links = Array.from(document.querySelectorAll(sel.orgLink)) as any[];
+    const seen: Record<string, boolean> = {};
+    const out: any[] = [];
+    for (const a of links) {
+      const rawHref = a.getAttribute('href');
+      if (!rawHref) continue;
+      const href = rawHref.replace(/\/(gallery|reviews|photos|tariffs|prices|map|branches)\/?(\?.*)?$/, '/');
+      if (seen[href]) continue;
+      seen[href] = true;
+      const card = a.closest(sel.snippet) || a.closest('li') || a.parentElement;
+      const nameN = (card && card.querySelector(sel.snippetName)) || a;
+      const catN = card && card.querySelector(sel.snippetCategory);
+      const addrN = card && card.querySelector(sel.snippetAddress);
+      const ratN = card && card.querySelector(sel.snippetRating);
+      const name = nameN && nameN.textContent ? nameN.textContent.trim() : '';
+      out.push({
+        name: name || undefined,
+        category: catN && catN.textContent ? catN.textContent.trim() : undefined,
+        address: addrN && addrN.textContent ? addrN.textContent.trim() : undefined,
+        ratingText: ratN && ratN.textContent ? ratN.textContent.trim() : undefined,
+        href,
+      });
+    }
+    return out;
+  }, SEL);
 }
 
 /** Phone + website read from an opened org card page. */
