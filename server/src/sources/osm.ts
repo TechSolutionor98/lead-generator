@@ -29,11 +29,15 @@ const KEYWORD_TAGS: { match: RegExp; filters: string[] }[] = [
   { match: /офис|канцел|office|print|оргтехник/i, filters: ['shop=stationery', 'office=it'] },
 ];
 
-function buildQuery(params: SearchParams): string {
-  // bbox = south, west, north, east (Overpass order).
+/** bbox string in Overpass order: south, west, north, east. */
+function bboxOf(params: SearchParams): string {
   const b = params.geo.bbox;
-  const bbox = `(${b[0]},${b[1]},${b[2]},${b[3]})`;
+  return `(${b[0]},${b[1]},${b[2]},${b[3]})`;
+}
 
+/** Tag-based filter blocks (indexed → fast). Keyword-sensitive via KEYWORD_TAGS. */
+function tagFilterBlocks(params: SearchParams): string[] {
+  const bbox = bboxOf(params);
   const tagFilters = new Set<string>();
   for (const { match, filters } of KEYWORD_TAGS) {
     if (match.test(params.query)) filters.forEach((f) => tagFilters.add(f));
@@ -42,21 +46,69 @@ function buildQuery(params: SearchParams): string {
   tagFilters.add('shop=computer');
   tagFilters.add('shop=electronics');
 
-  // Escape the query for a case-insensitive OSM name regex.
-  const safe = params.query.replace(/[\\"]/g, '\\$&');
-
   const blocks: string[] = [];
   for (const f of tagFilters) {
     const [k, v] = f.split('=');
     blocks.push(`nwr["${k}"="${v}"]${bbox};`);
   }
-  // Name-regex fallback: any business-ish object whose name matches the query.
-  blocks.push(`nwr["name"~"${safe}",i]["shop"]${bbox};`);
-  blocks.push(`nwr["name"~"${safe}",i]["office"]${bbox};`);
+  return blocks;
+}
 
-  // Cap the Overpass result set generously above `limit`; we trim client-side.
+/** Name-regex blocks (unindexed → slow on big areas). Adds long-tail matches. */
+function nameRegexBlocks(params: SearchParams): string[] {
+  const bbox = bboxOf(params);
+  // Escape the query for a case-insensitive OSM name regex.
+  const safe = params.query.replace(/[\\"]/g, '\\$&');
+  return [
+    `nwr["name"~"${safe}",i]["shop"]${bbox};`,
+    `nwr["name"~"${safe}",i]["office"]${bbox};`,
+  ];
+}
+
+function buildQuery(params: SearchParams): string {
+  // Full search: tag filters + name regex, capped generously above `limit`.
+  const blocks = [...tagFilterBlocks(params), ...nameRegexBlocks(params)];
   const maxSize = Math.min(2000, Math.max(50, params.limit * 4));
   return `[out:json][timeout:60][maxsize:67108864];\n(\n${blocks.join('\n')}\n);\nout center tags ${maxSize};`;
+}
+
+/**
+ * A COUNT query — tag filters only (no name regex), so it stays fast even over
+ * large cities. Still keyword-sensitive via the keyword→tag mapping. May slightly
+ * undercount vs. the full search (misses name-only matches); fine for an estimate.
+ */
+function buildCountQuery(params: SearchParams): string {
+  return `[out:json][timeout:30];\n(\n${tagFilterBlocks(params).join('\n')}\n);\nout count;`;
+}
+
+/** Run an Overpass POST with backoff; returns parsed JSON (or empty on error). */
+async function overpassRequest(
+  body: string,
+  params: SearchParams,
+  timeoutMs = 70_000,
+): Promise<{ elements?: OverpassElement[] }> {
+  return withBackoff(
+    () =>
+      enqueue<{ elements?: OverpassElement[] }>(SOURCE_ID, async () => {
+        const res = await http.post<{ elements?: OverpassElement[] }>(
+          env.OVERPASS_URL,
+          'data=' + encodeURIComponent(body),
+          {
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            timeout: timeoutMs,
+          },
+        );
+        if (isRetryableStatus(res.status)) {
+          throw new RetryableError(`Overpass busy`, res.status);
+        }
+        if (res.status >= 400) {
+          params.log?.(`[osm] Overpass returned ${res.status}`);
+          return { elements: [] };
+        }
+        return res.data;
+      }),
+    { log: (m) => params.log?.(`[osm] ${m}`), signal: params.signal },
+  );
 }
 
 interface OverpassElement {
@@ -108,31 +160,20 @@ export const osmSource: LeadSource = {
   name: 'OpenStreetMap (Overpass)',
   note: 'free · open data',
   enabled: () => true,
+  async count(params: SearchParams): Promise<number | null> {
+    // Short timeout: Overpass counts over big cities can be slow, and the
+    // estimate must stay responsive. If it doesn't answer in time → null (n/a).
+    const data = await overpassRequest(buildCountQuery(params), params, 8_000).catch(() => ({
+      elements: [],
+    }));
+    // `out count` returns a single element whose tags.total holds the count.
+    const el = data?.elements?.[0];
+    const totalStr = el?.tags?.total;
+    const total = totalStr != null ? Number(totalStr) : NaN;
+    return Number.isFinite(total) ? total : null;
+  },
   async *search(params: SearchParams): AsyncGenerator<Lead> {
-    const body = buildQuery(params);
-
-    const data = await withBackoff(
-      () =>
-        enqueue<{ elements?: OverpassElement[] }>(SOURCE_ID, async () => {
-          const res = await http.post<{ elements?: OverpassElement[] }>(
-            env.OVERPASS_URL,
-            'data=' + encodeURIComponent(body),
-            {
-              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-              timeout: 70_000,
-            },
-          );
-          if (isRetryableStatus(res.status)) {
-            throw new RetryableError(`Overpass busy`, res.status);
-          }
-          if (res.status >= 400) {
-            params.log?.(`[osm] Overpass returned ${res.status}`);
-            return { elements: [] };
-          }
-          return res.data;
-        }),
-      { log: (m) => params.log?.(`[osm] ${m}`), signal: params.signal },
-    );
+    const data = await overpassRequest(buildQuery(params), params);
 
     const elements = data?.elements ?? [];
     const seen = new Set<string>();

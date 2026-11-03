@@ -74,6 +74,12 @@ export interface LeadSource {
   enabled(): boolean;
   /** Yields leads for one (query, city). Must respect params.limit. */
   search(params: SearchParams): AsyncGenerator<Lead>;
+  /**
+   * Optional: report how many results are AVAILABLE for one (query, place)
+   * without collecting them, using a cheap "count" request. Returns null when
+   * the source can't report a count (e.g. Yandex). Used by the estimate feature.
+   */
+  count?(params: SearchParams): Promise<number | null>;
 }
 
 export type JobStatus = 'pending' | 'running' | 'done' | 'error' | 'cancelled';

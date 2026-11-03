@@ -144,6 +144,41 @@ export interface CreateJobBody {
   delayMs: number;
 }
 
+// --- Available-count estimate ------------------------------------------------
+
+export interface SourceCount {
+  sourceId: string;
+  name: string;
+  count: number | null;
+  supported: boolean;
+}
+export interface QueryEstimate {
+  query: string;
+  sources: SourceCount[];
+  total: number | null;
+}
+export interface EstimateResult {
+  places: string[];
+  queries: QueryEstimate[];
+  grandTotal: number | null;
+  notes: string[];
+}
+
+/** Ask the server how many leads are available per keyword (no collection). */
+export async function estimateCounts(body: {
+  sources: string[];
+  queries: string[];
+  targets: Target[];
+}): Promise<EstimateResult> {
+  return json(
+    await authFetch('/api/estimate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
 export async function createJob(body: CreateJobBody): Promise<{ id: string }> {
   return json(
     await authFetch('/api/jobs', {

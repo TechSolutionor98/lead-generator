@@ -4,6 +4,7 @@ import { startJob, subscribe, getJob, cancelJob, isJobDone } from '../jobs.js';
 import { queryLeads, countLeads } from '../db.js';
 import { buildCsv, buildXlsx } from '../export.js';
 import { sourceList } from '../sources/index.js';
+import { estimateCounts } from '../estimate.js';
 import { listCountries, regionsFor, citiesFor } from '../locations.js';
 import { DbNotConfiguredError } from '../mongo.js';
 import type { JobEvent } from '../types.js';
@@ -48,6 +49,21 @@ const createJobSchema = z.object({
   enrichEmail: z.boolean().default(false),
   // Pause (ms) after each lead, to pace scraping. 0–60000.
   delayMs: z.coerce.number().int().min(0).max(60_000).default(0),
+});
+
+const estimateSchema = z.object({
+  sources: z.array(z.string().min(1)).min(1, 'pick at least one source'),
+  queries: z.array(z.string().min(1)).min(1, 'enter at least one query'),
+  targets: z
+    .array(
+      z.object({
+        country: z.string().min(1),
+        countryCode: z.string().min(2).max(2),
+        region: z.string().min(1).optional(),
+        city: z.string().min(1).optional(),
+      }),
+    )
+    .min(1, 'pick at least one country, region or city'),
 });
 
 const leadsQuerySchema = z.object({
@@ -112,6 +128,20 @@ jobsRouter.get('/cities', (req, res) => {
   }
   res.json({ cities: citiesFor(country, region) });
 });
+
+/** Estimate how many leads are available per keyword (no collection). */
+jobsRouter.post(
+  '/estimate',
+  wrap(async (req, res) => {
+    const parsed = estimateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'invalid input', details: parsed.error.flatten() });
+      return;
+    }
+    const result = await estimateCounts(parsed.data);
+    res.json(result);
+  }),
+);
 
 /** Create a job and start processing. */
 jobsRouter.post(

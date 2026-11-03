@@ -96,6 +96,34 @@ export const twogisSource: LeadSource = {
   name: '2GIS',
   note: 'names + addresses only (contacts are paid)',
   enabled: () => Boolean(env.TWOGIS_WEB_KEY),
+  async count(params: SearchParams): Promise<number | null> {
+    if (!env.TWOGIS_WEB_KEY) return null;
+    const center = params.geo.center;
+    const data = await withBackoff(
+      () =>
+        enqueue<AxiosResponse<TwoGisResponse>>(SOURCE_ID, async () => {
+          const res = await http.get<TwoGisResponse>(endpoint(), {
+            params: {
+              q: `${params.query} ${params.city}`.trim(),
+              location: `${center[0]},${center[1]}`,
+              page: 1,
+              page_size: 1, // we only need result.total, not the items
+              fields: 'items.point',
+              key: env.TWOGIS_WEB_KEY,
+            },
+          });
+          if (isRetryableStatus(res.status)) {
+            throw new RetryableError('2GIS throttled', res.status);
+          }
+          return res;
+        }),
+      { log: (m) => params.log?.(`[2gis] ${m}`), signal: params.signal },
+    );
+    const code = data.data.meta?.code;
+    if (data.status >= 400 || (code && code >= 400)) return null;
+    const total = data.data.result?.total;
+    return typeof total === 'number' ? total : null;
+  },
   async *search(params: SearchParams): AsyncGenerator<Lead> {
     if (!env.TWOGIS_WEB_KEY) {
       params.log?.('[2gis] no TWOGIS_WEB_KEY set — skipping (get a free demo key, see README)');

@@ -92,7 +92,11 @@ export default function App() {
     getSources()
       .then((s) => {
         setSources(s);
-        const enabled = s.filter((x) => x.enabled && x.id !== 'avito').map((x) => x.id);
+        // Default-select the free sources we actually collect from (OSM + Yandex).
+        // 2GIS stays available but unchecked by default (names/addresses only).
+        const enabled = s
+          .filter((x) => x.enabled && x.id !== 'avito' && x.id !== 'twogis')
+          .map((x) => x.id);
         setConfig((c) => ({ ...c, sources: enabled }));
       })
       .catch(() => undefined);
