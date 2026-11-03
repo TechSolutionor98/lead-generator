@@ -53,6 +53,7 @@ export interface LeadDoc {
   lastSeenAt: string; // ISO — most recent run that saw it again
   jobIds: string[]; // every run that has seen it
   seenCount: number; // how many times it has been encountered
+  exportedAt?: string | null; // ISO — when exported; once set, hidden from views
 }
 
 /**
@@ -122,6 +123,7 @@ async function ensureIndexes(db: Db): Promise<void> {
     { key: { firstJobId: 1 } },
     { key: { jobIds: 1 } },
     { key: { lastSeenAt: -1 } },
+    { key: { exportedAt: 1 } },
   ]);
   await db.collection<JobDoc>('jobs').createIndexes([{ key: { createdAt: -1 } }]);
 }

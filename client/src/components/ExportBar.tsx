@@ -6,10 +6,18 @@ interface Props {
   selectedIds: string[];
   excludeIndividuals: boolean;
   totalLeads: number;
+  /** Called after a successful export so the view can drop the consumed leads. */
+  onExported?: () => void;
 }
 
 /** CSV / Excel download buttons, for all rows or the current selection. */
-export default function ExportBar({ jobId, selectedIds, excludeIndividuals, totalLeads }: Props) {
+export default function ExportBar({
+  jobId,
+  selectedIds,
+  excludeIndividuals,
+  totalLeads,
+  onExported,
+}: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -24,6 +32,8 @@ export default function ExportBar({ jobId, selectedIds, excludeIndividuals, tota
         ids: onlySelected ? selectedIds : undefined,
         excludeIndividuals,
       });
+      // Exported leads are now consumed server-side — refresh to drop them.
+      onExported?.();
     } catch (e) {
       setError((e as Error).message || 'Download failed');
     } finally {

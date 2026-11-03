@@ -145,6 +145,20 @@ export async function insertLead(jobId: string, lead: Lead): Promise<boolean> {
   return res.upsertedCount === 1;
 }
 
+/**
+ * Mark leads as exported so they're never shown/counted again. Called right
+ * after a successful CSV/XLSX export. Returns how many were newly marked.
+ */
+export async function markExported(ids: string[]): Promise<number> {
+  if (ids.length === 0) return 0;
+  const col = await leadsCol();
+  const res = await col.updateMany(
+    { _id: { $in: ids }, exportedAt: null },
+    { $set: { exportedAt: nowIso() } },
+  );
+  return res.modifiedCount;
+}
+
 function docToLead(doc: LeadDoc): Lead {
   return {
     source: doc.source,
@@ -174,11 +188,14 @@ export interface LeadQuery {
   ids?: string[]; // dedup-key ids (Mongo _id) for selected-rows export
 }
 
-/** Recompute aggregate counts for a job from its newly-discovered leads. */
+/** Recompute aggregate counts for a job from its newly-discovered, un-exported leads. */
 export async function computeCounts(jobId: string): Promise<JobCounts> {
   const col = await leadsCol();
   const counts = emptyCounts();
-  const cursor = col.find({ firstJobId: jobId }, { projection: { source: 1, city: 1, category: 1 } });
+  const cursor = col.find(
+    { firstJobId: jobId, exportedAt: null },
+    { projection: { source: 1, city: 1, category: 1 } },
+  );
   for await (const r of cursor) {
     counts.total += 1;
     counts.bySource[r.source] = (counts.bySource[r.source] ?? 0) + 1;
@@ -190,8 +207,10 @@ export async function computeCounts(jobId: string): Promise<JobCounts> {
 }
 
 function buildFilter(q: LeadQuery): Record<string, unknown> {
-  // A job's rows = the leads it first discovered (the "new" ones for that run).
-  const filter: Record<string, unknown> = { firstJobId: q.jobId };
+  // A job's rows = the leads it first discovered (the "new" ones for that run),
+  // excluding any already exported (exporting "consumes" a lead → never shown
+  // again). `exportedAt: null` matches both unset and null.
+  const filter: Record<string, unknown> = { firstJobId: q.jobId, exportedAt: null };
 
   if (q.excludeIndividuals) filter.isIndividual = { $ne: true };
 

@@ -299,6 +299,13 @@ export default function App() {
               selectedIds={[...selected]}
               excludeIndividuals={excludeIndividuals}
               totalLeads={total}
+              onExported={() => {
+                // Exported leads are consumed — clear selection and refetch so
+                // they drop out of the table and counts.
+                setSelected(new Set());
+                setPage(1);
+                if (jobId) void refreshLeads(jobId, 1);
+              }}
             />
           </div>
 

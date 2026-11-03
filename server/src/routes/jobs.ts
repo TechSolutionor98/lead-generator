@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { startJob, subscribe, getJob, cancelJob, isJobDone } from '../jobs.js';
-import { queryLeads, countLeads } from '../db.js';
+import { queryLeads, countLeads, markExported } from '../db.js';
 import { buildCsv, buildXlsx } from '../export.js';
 import { sourceList } from '../sources/index.js';
 import { listCountries, regionsFor, citiesFor } from '../locations.js';
@@ -256,8 +256,13 @@ jobsRouter.get(
     const leads = rows.map((r) => r.lead);
     const stamp = new Date().toISOString().slice(0, 10);
 
+    // Build the file first, then mark these leads as exported so they are never
+    // shown or exported again (exporting "consumes" them).
+    const exportIds = rows.map((r) => r.id);
+
     if (format === 'csv') {
       const csv = buildCsv(leads);
+      await markExported(exportIds);
       res.set({
         'Content-Type': 'text/csv; charset=utf-8',
         'Content-Disposition': `attachment; filename="grableads-${stamp}.csv"`,
@@ -268,6 +273,7 @@ jobsRouter.get(
     }
 
     const xlsx = await buildXlsx(leads);
+    await markExported(exportIds);
     res.set({
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       'Content-Disposition': `attachment; filename="grableads-${stamp}.xlsx"`,
