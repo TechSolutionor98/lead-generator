@@ -1,8 +1,24 @@
 import { http } from '../http.js';
 import { env } from '../env.js';
-import { enqueue, withBackoff, RetryableError, isRetryableStatus } from '../queue.js';
+import { enqueue, isRetryableStatus } from '../queue.js';
 import { finalizeLead } from '../dedup.js';
 import type { Lead, LeadSource, SearchParams } from '../types.js';
+
+/**
+ * Overpass mirrors tried in order. The public overpass-api.de is frequently
+ * overloaded (502 / 70s timeouts), so we fail over to alternates. The env
+ * OVERPASS_URL (if set) is tried first.
+ */
+const OVERPASS_MIRRORS = [
+  ...new Set(
+    [
+      env.OVERPASS_URL,
+      'https://overpass.kumi.systems/api/interpreter',
+      'https://overpass.private.coffee/api/interpreter',
+      'https://overpass-api.de/api/interpreter',
+    ].filter(Boolean),
+  ),
+];
 
 /**
  * OpenStreetMap via the Overpass API — FREE, no key, open data.
@@ -85,34 +101,40 @@ function buildCountQuery(params: SearchParams): string {
   return `[out:json][timeout:30];\n(\n${tagFilterBlocks(params).join('\n')}\n);\nout count;`;
 }
 
-/** Run an Overpass POST with backoff; returns parsed JSON (or empty on error). */
+/**
+ * Run an Overpass POST, failing over across mirrors. Each mirror gets one
+ * attempt; a busy status (5xx/429), an HTTP error, or a timeout moves on to the
+ * next mirror. Returns parsed JSON, or empty elements if every mirror fails
+ * (non-fatal — the job continues on other sources).
+ */
 async function overpassRequest(
   body: string,
   params: SearchParams,
   timeoutMs = 70_000,
 ): Promise<{ elements?: OverpassElement[] }> {
-  return withBackoff(
-    () =>
-      enqueue<{ elements?: OverpassElement[] }>(SOURCE_ID, async () => {
-        const res = await http.post<{ elements?: OverpassElement[] }>(
-          env.OVERPASS_URL,
-          'data=' + encodeURIComponent(body),
-          {
+  for (const url of OVERPASS_MIRRORS) {
+    if (params.signal?.aborted) break;
+    try {
+      const res = await enqueue<{ status: number; data: { elements?: OverpassElement[] } }>(
+        SOURCE_ID,
+        () =>
+          http.post<{ elements?: OverpassElement[] }>(url, 'data=' + encodeURIComponent(body), {
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             timeout: timeoutMs,
-          },
-        );
-        if (isRetryableStatus(res.status)) {
-          throw new RetryableError(`Overpass busy`, res.status);
-        }
-        if (res.status >= 400) {
-          params.log?.(`[osm] Overpass returned ${res.status}`);
-          return { elements: [] };
-        }
-        return res.data;
-      }),
-    { log: (m) => params.log?.(`[osm] ${m}`), signal: params.signal },
-  );
+          }),
+      );
+      if (isRetryableStatus(res.status) || res.status >= 400) {
+        params.log?.(`[osm] ${url} busy/error (${res.status}) — trying next mirror`);
+        continue;
+      }
+      return res.data;
+    } catch (err) {
+      params.log?.(`[osm] ${url} failed (${(err as Error).message}) — trying next mirror`);
+      continue;
+    }
+  }
+  params.log?.(`[osm] all Overpass mirrors failed for "${params.query}"`);
+  return { elements: [] };
 }
 
 interface OverpassElement {
@@ -177,7 +199,23 @@ export const osmSource: LeadSource = {
     return Number.isFinite(total) ? total : null;
   },
   async *search(params: SearchParams): AsyncGenerator<Lead> {
-    const data = await overpassRequest(buildQuery(params), params);
+    // Free Overpass can't answer queries over very large areas within the
+    // timeout (whole oblasts / countries all time out across every mirror).
+    // Skip those here and let Yandex cover broad searches; OSM runs for cities
+    // and small regions where it's fast and reliable.
+    const [s, w, n, e] = params.geo.bbox;
+    const areaDeg2 = Math.abs(n - s) * Math.abs(e - w);
+    const MAX_AREA_DEG2 = 6; // ~ a large metro/small region; oblasts & countries exceed this
+    if (areaDeg2 > MAX_AREA_DEG2) {
+      params.log?.(
+        `[osm] "${params.city}" area too large for free Overpass ` +
+          `(~${areaDeg2.toFixed(0)}°²) — skipped (Yandex covers broad searches). ` +
+          `Pick a city for OSM results.`,
+      );
+      return;
+    }
+
+    const data = await overpassRequest(buildQuery(params), params, 40_000);
 
     const elements = data?.elements ?? [];
     const seen = new Set<string>();
