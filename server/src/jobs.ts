@@ -12,6 +12,8 @@ import {
 } from './db.js';
 import { enrichLead } from './enrich.js';
 import { resolveGeo } from './geocode.js';
+import { translateQuery } from './translate.js';
+import { countryMeta } from './country.js';
 import { env } from './env.js';
 import type { GeoBox } from './types.js';
 
@@ -127,6 +129,24 @@ async function runJob(jobId: string, params: JobParams): Promise<void> {
     log('info', `📍 ${label}${scope} located`);
   }
 
+  // Localize each query into each place's search language (e.g. English →
+  // Russian for Russia) so the user can type English but the map sources still
+  // get native keywords. English-language countries are a no-op. Cached, so each
+  // (query, language) pair is translated at most once.
+  const localized = new Map<string, string>(); // `${lang}|${query}` → localized
+  for (const query of params.queries) {
+    for (const place of places) {
+      const lang = countryMeta(place.countryCode).hl;
+      const key = `${lang}|${query}`;
+      if (localized.has(key)) continue;
+      const out = await translateQuery(query, lang, (m) => log('info', m));
+      localized.set(key, out);
+      if (out !== query) log('info', `🌐 "${query}" → "${out}" (${lang})`);
+    }
+  }
+  const localize = (query: string, countryCode: string): string =>
+    localized.get(`${countryMeta(countryCode).hl}|${query}`) ?? query;
+
   // Build the task matrix: each enabled, requested source × query × place.
   const tasks: {
     sourceId: string;
@@ -141,7 +161,7 @@ async function runJob(jobId: string, params: JobParams): Promise<void> {
     }
     for (const query of params.queries) {
       for (const place of places) {
-        tasks.push({ sourceId, query, place });
+        tasks.push({ sourceId, query: localize(query, place.countryCode), place });
       }
     }
   }

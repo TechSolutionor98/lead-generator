@@ -20,12 +20,15 @@ import ExportBar from './components/ExportBar';
 import AvitoImport from './components/AvitoImport';
 import Login from './components/Login';
 
+// Queries are written in plain English; the server auto-translates them into
+// the selected country's search language (e.g. Russian for Russia) before
+// scraping, so these work for any country.
 const DEFAULT_QUERIES = [
-  'компьютерный магазин',
-  'системный интегратор',
-  'сервисный центр компьютеров',
-  'оптовая продажа комплектующих',
-  'майнинг оборудование',
+  'computer store',
+  'system integrator',
+  'computer repair service',
+  'computer components wholesale',
+  'mining equipment',
 ].join('\n');
 
 const PAGE_SIZE = 50;

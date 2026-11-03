@@ -332,15 +332,18 @@ export default function SourcePanel({
 
       {/* Queries */}
       <section>
-        <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+        <h3 className="mb-1 text-sm font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
           Queries <span className="font-normal normal-case">(one per line)</span>
         </h3>
+        <p className="mb-2 text-xs text-gray-400 dark:text-gray-500">
+          Type in English — auto-translated to the country's language (e.g. Russian for Russia).
+        </p>
         <textarea
           rows={6}
           value={config.queries}
           onChange={(e) => onChange({ ...config, queries: e.target.value })}
           className="w-full resize-y rounded-md border border-gray-300 bg-white p-2 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-          placeholder="компьютерный магазин"
+          placeholder="computer store"
         />
       </section>
 
