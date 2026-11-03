@@ -59,10 +59,8 @@ export default function App() {
   const [countries, setCountries] = useState<Country[]>([]);
   const [config, setConfig] = useState<SearchConfig>({
     sources: [],
-    targets: [
-      { country: 'Russia', countryCode: 'ru', region: 'Москва', city: 'Москва' },
-      { country: 'Russia', countryCode: 'ru', region: 'Санкт-Петербург', city: 'Санкт-Петербург' },
-    ],
+    // No locations pre-selected — the user adds their own.
+    targets: [],
     queries: DEFAULT_QUERIES,
     // Always collect the maximum available per keyword/place (no UI cap).
     limitPerQuery: 1_000_000,
